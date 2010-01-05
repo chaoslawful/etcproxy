@@ -85,3 +85,5 @@ sleep(N) when N >= 0 ->
 	after N -> ok
 	end.
 
+% vim: ts=4 sw=4 ft=erlang
+
