@@ -6,14 +6,14 @@ Description
 	listen to a local port and relay all traffic on it to certain remote/local
 	address/port. The advanced functionalities includes:
 
+		* Split upstream packet into packet-per-byte before relaying and vice
+		versa.
+
 		* Specify delays in forward/backward traffic relaying (delays are
 		inserted every N bytes). (TODO)
 
 		* Force connection closing after forward/backward relaying traffic
 		reached certain threshold (in bytes). (TODO)
-
-		* Split upstream packet into packet-per-byte before relaying and vice
-		versa. (TODO)
 
 Synopsis
 	You should first install Erlang which can be obtained from here:
@@ -32,7 +32,7 @@ Authors
 	chaoslawful (王晓哲)
 
 Copyright & License
-	This module is licenced under the BSD license.
+	This program is licenced under the BSD license.
 
 	Copyright (c) 2009, chaoslawful <chaoslawful@gmail.com>.
 

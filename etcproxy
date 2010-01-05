@@ -1,6 +1,12 @@
 #!/usr/bin/env escript
 -define(DEFAULT_DEST_ADDR, {127, 0, 0, 1}).
--define(PACKET_RELAY_DELAY, 100).	% delay inserted between relayed packet (in ms)
+-define(PACKET_RELAY_DELAY, 10).	% delay inserted between relayed packet (in ms)
+-define(SPLIT_SEGMENT_LEN, 1).		% segment length to split into (in byte)
+-define(SPLIT_US_PACKET, true).		% whether split packet sent by upstream into segments before relaying to downstream
+-define(SPLIT_DS_PACKET, false).		% whether split packet sent by downstream into segments before relaying to upstream
+
+-define(LSOCK_OPTS, [binary, {packet, 0}, {reuseaddr, true}]).
+-define(CSOCK_OPTS, [binary, {packet, 0}, {nodelay, true}]).
 
 main([Src, Dest]) ->
 	SrcPort = list_to_integer(Src),
@@ -11,7 +17,7 @@ main(_) -> usage().
 
 run_proxy(SP, DA, DP) ->
 	io:format("Proxy tcp traffic from port ~b to ~p:~b~n", [SP, DA, DP]),
-	{ok, LS} = gen_tcp:listen(SP, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]),
+	{ok, LS} = gen_tcp:listen(SP, [{active, false} | ?LSOCK_OPTS]),
 	proxy_server_loop(LS, DA, DP).
 
 proxy_server_loop(LSock, DA, DP) ->
@@ -19,28 +25,27 @@ proxy_server_loop(LSock, DA, DP) ->
 	{ok, {SAddr, SPort}} = inet:peername(DS),
 	{ok, {DAddr, DPort}} = inet:sockname(DS),
 	io:format("*** Incoming connection from ~p:~b to ~p:~b~n", [SAddr, SPort, DAddr, DPort]),
-	ok = gen_tcp:controlling_process(DS, spawn(
-			fun	() ->
-					ok = inet:setopts(DS, [{active, true}]),
-					run_proxy_client(DS, DA, DP),
-					gen_tcp:close(DS)
-			end
-		)
+	Pid = spawn(
+		fun	() ->
+				receive start -> ok end,
+				ok = inet:setopts(DS, [{active, true} | ?CSOCK_OPTS]),
+				run_proxy_client(DS, DA, DP),
+				gen_tcp:close(DS)
+		end
 	),
+	ok = gen_tcp:controlling_process(DS, Pid),
+	Pid ! start,
 	proxy_server_loop(LSock, DA, DP).
 
 run_proxy_client(DS, DA, DP) ->
-	{ok, US} = gen_tcp:connect(DA, DP, [binary, {packet, 0}, {active, true}]),
+	{ok, US} = gen_tcp:connect(DA, DP, [{active, true} | ?CSOCK_OPTS]),
 	proxy_client_loop(DS, US),
 	gen_tcp:close(US).
 
 proxy_client_loop(DS, US) ->
-	% Emulate network packet delay
-	sleep(?PACKET_RELAY_DELAY),
 	receive
 		{tcp, DS, Data} ->
-			io:format("*** Proxy ~b bytes from downstream to upstream: ~n~p~n", [byte_size(Data), Data]),
-			gen_tcp:send(US, Data),
+			relay_downstream_packet(US, Data),
 			proxy_client_loop(DS, US);
 		{tcp_error, DS, Reason} ->
 			io:format("*** Error occured on downstream socket: ~p~n", [Reason]),
@@ -49,8 +54,7 @@ proxy_client_loop(DS, US) ->
 			io:format("*** Downstream socket closed~n"),
 			done;
 		{tcp, US, Data} ->
-			io:format("*** Proxy ~b bytes from upstream to downstream: ~n~p~n", [byte_size(Data), Data]),
-			gen_tcp:send(DS, Data),
+			relay_upstream_packet(DS, Data),
 			proxy_client_loop(DS, US);
 		{tcp_error, US, Reason} ->
 			io:format("*** Error occured on upstream socket: ~p~n", [Reason]),
@@ -85,5 +89,50 @@ sleep(N) when N >= 0 ->
 	after N -> ok
 	end.
 
-% vim: ts=4 sw=4 ft=erlang
+split_to_segments(N, Bin) when N > 0 -> split_to_segments(N, Bin, []).
+
+split_to_segments(_, <<>>, L) -> lists:reverse(L);
+split_to_segments(N, Bin, L) when byte_size(Bin) =< N -> split_to_segments(N, <<>>, [Bin | L]);
+split_to_segments(N, Bin, L) ->
+	<<Seg:N/binary, Remain/binary>> = Bin,
+	split_to_segments(N, Remain, [Seg | L]).
+
+relay_downstream_packet(US, Data) ->
+	io:format("*** Proxy ~b bytes from downstream to upstream: ~n~p~n", [byte_size(Data), Data]),
+	if	?SPLIT_DS_PACKET ->	% split downstream packet into segments and then send
+			lists:foreach(
+				fun	(Packet) ->
+						% Emulate network packet delay
+						sleep(?PACKET_RELAY_DELAY),
+						gen_tcp:send(US, Packet)
+				end,
+				split_to_segments(?SPLIT_SEGMENT_LEN, Data)
+			);
+		true ->				% send downstream packet as a whole
+			% Emulate network packet delay
+			sleep(?PACKET_RELAY_DELAY),
+			gen_tcp:send(US, Data)
+	end,
+	ok.
+
+relay_upstream_packet(DS, Data) ->
+	io:format("*** Proxy ~b bytes from upstream to downstream: ~n~p~n", [byte_size(Data), Data]),
+	if	?SPLIT_US_PACKET ->	% split upstream packet into segments and then send
+			lists:foreach(
+				fun (Packet) ->
+						% Emulate network packet delay
+						sleep(?PACKET_RELAY_DELAY),
+						gen_tcp:send(DS, Packet)
+				end,
+				split_to_segments(?SPLIT_SEGMENT_LEN, Data)
+			);
+		true ->				% send upstream packet as a whole
+			% Emulate network packet delay
+			sleep(?PACKET_RELAY_DELAY),
+			gen_tcp:send(DS, Data)
+	end,
+	ok.
+
+% vim600: noet ft=erlang ts=4 sw=4 fdm=marker
+% vim<600: noet ft=erlang ts=4 sw=4
 
