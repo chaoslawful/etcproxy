@@ -1,5 +1,6 @@
 #!/usr/bin/env escript
 -define(DEFAULT_DEST_ADDR, {127, 0, 0, 1}).
+-define(PACKET_RELAY_DELAY, 100).	% delay inserted between relayed packet (in ms)
 
 main([Src, Dest]) ->
 	SrcPort = list_to_integer(Src),
@@ -35,7 +36,7 @@ run_proxy_client(DS, DA, DP) ->
 
 proxy_client_loop(DS, US) ->
 	% Emulate network packet delay
-	sleep(100),
+	sleep(?PACKET_RELAY_DELAY),
 	receive
 		{tcp, DS, Data} ->
 			io:format("*** Proxy ~b bytes from downstream to upstream: ~n~p~n", [byte_size(Data), Data]),
