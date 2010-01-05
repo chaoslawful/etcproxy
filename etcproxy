@@ -1,0 +1,86 @@
+#!/usr/bin/env escript
+-define(DEFAULT_DEST_ADDR, {127, 0, 0, 1}).
+
+main([Src, Dest]) ->
+	SrcPort = list_to_integer(Src),
+	{DestAddr, DestPort} = parse_addr(Dest),
+	run_proxy(SrcPort, DestAddr, DestPort);
+
+main(_) -> usage().
+
+run_proxy(SP, DA, DP) ->
+	io:format("Proxy tcp traffic from port ~b to ~p:~b~n", [SP, DA, DP]),
+	{ok, LS} = gen_tcp:listen(SP, [binary, {packet, 0}, {active, false}, {reuseaddr, true}]),
+	proxy_server_loop(LS, DA, DP).
+
+proxy_server_loop(LSock, DA, DP) ->
+	{ok, DS} = gen_tcp:accept(LSock),
+	{ok, {SAddr, SPort}} = inet:peername(DS),
+	{ok, {DAddr, DPort}} = inet:sockname(DS),
+	io:format("*** Incoming connection from ~p:~b to ~p:~b~n", [SAddr, SPort, DAddr, DPort]),
+	ok = gen_tcp:controlling_process(DS, spawn(
+			fun	() ->
+					ok = inet:setopts(DS, [{active, true}]),
+					run_proxy_client(DS, DA, DP),
+					gen_tcp:close(DS)
+			end
+		)
+	),
+	proxy_server_loop(LSock, DA, DP).
+
+run_proxy_client(DS, DA, DP) ->
+	{ok, US} = gen_tcp:connect(DA, DP, [binary, {packet, 0}, {active, true}]),
+	proxy_client_loop(DS, US),
+	gen_tcp:close(US).
+
+proxy_client_loop(DS, US) ->
+	% Emulate network packet delay
+	sleep(100),
+	receive
+		{tcp, DS, Data} ->
+			io:format("*** Proxy ~b bytes from downstream to upstream: ~n~p~n", [byte_size(Data), Data]),
+			gen_tcp:send(US, Data),
+			proxy_client_loop(DS, US);
+		{tcp_error, DS, Reason} ->
+			io:format("*** Error occured on downstream socket: ~p~n", [Reason]),
+			done;
+		{tcp_closed, DS} ->
+			io:format("*** Downstream socket closed~n"),
+			done;
+		{tcp, US, Data} ->
+			io:format("*** Proxy ~b bytes from upstream to downstream: ~n~p~n", [byte_size(Data), Data]),
+			gen_tcp:send(DS, Data),
+			proxy_client_loop(DS, US);
+		{tcp_error, US, Reason} ->
+			io:format("*** Error occured on upstream socket: ~p~n", [Reason]),
+			done;
+		{tcp_closed, US} ->
+			io:format("*** Upstream socket closed~n"),
+			done;
+		Other ->
+			io:format("*** Invalid message: ~p~n", [Other]),
+			proxy_client_loop(DS, US)
+	end.
+
+usage() ->
+	io:format("Usage: etcproxy <src port> [<dest addr>:]<dest port>~n").
+
+parse_addr(L) ->
+	case string:tokens(L, ":") of
+		[PortL] ->
+			Addr = ?DEFAULT_DEST_ADDR,
+			Port = list_to_integer(PortL),
+			{Addr, Port};
+		[AddrL, PortL] ->
+			{ok, Addr} = inet_parse:ipv4_address(AddrL),
+			Port = list_to_integer(PortL),
+			{Addr, Port};
+		_ ->
+			erlang:error("invalid destination", L)
+	end.
+
+sleep(N) when N >= 0 ->
+	receive
+	after N -> ok
+	end.
+
