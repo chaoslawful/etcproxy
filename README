@@ -10,10 +10,10 @@ Description
 		versa.
 
 		* Specify delays in forward/backward traffic relaying (delays are
-		inserted every N bytes). (TODO)
+		inserted every N bytes).
 
 		* Force connection closing after forward/backward relaying traffic
-		reached certain threshold (in bytes). (TODO)
+		reached certain threshold (in bytes).
 
 Synopsis
 	You should first install Erlang which can be obtained from here:
