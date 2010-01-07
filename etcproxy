@@ -1,14 +1,14 @@
 #!/usr/bin/env escript
--define(DEFAULT_DEST_ADDR, {127, 0, 0, 1}).
--define(DS_PACKET_RELAY_DELAY, 1).	% delay inserted between relayed downstream packet (in ms)
--define(US_PACKET_RELAY_DELAY, 10).	% delay inserted between relayed upstream packet (in ms)
--define(FORCE_ACCURATE_SPLIT, true).	% whether force accurate splitting (don't relay if there's not enough data for a segment)
--define(SPLIT_US_SEGMENT_LEN, 3).		% upstream segment length to split into (in byte)
--define(SPLIT_DS_SEGMENT_LEN, 5).		% downstream segment length to split into (in byte)
--define(SPLIT_US_PACKET, false).		% whether split packet sent by upstream into segments before relaying to downstream
--define(SPLIT_DS_PACKET, false).		% whether split packet sent by downstream into segments before relaying to upstream
+-define(DS_PACKET_RELAY_DELAY, 1).	% delay inserted between splitted segments sent by downstream (in ms)
+-define(US_PACKET_RELAY_DELAY, 1).	% delay inserted between splitted segments sent by upstream (in ms)
+-define(SPLIT_DS_SEGMENT_LEN, 1).		% downstream segment length to split into (in byte)
+-define(SPLIT_US_SEGMENT_LEN, 17).		% upstream segment length to split into (in byte)
+-define(SPLIT_DS_PACKET, true).		% whether split packet sent by downstream into segments before relaying to upstream
+-define(SPLIT_US_PACKET, true).		% whether split packet sent by upstream into segments before relaying to downstream
+-define(FORCE_ACCURATE_SPLIT, false).	% whether force accurate splitting (don't relay if there's not enough data for a segment)
 -define(CLOSE_INSTEAD_OF_DELAY, false).	% close upstream/downstream connection instead of delay a certain time when packet is being splitting
 
+-define(DEFAULT_DEST_ADDR, {127, 0, 0, 1}).
 -define(LSOCK_OPTS, [binary, {packet, 0}, {reuseaddr, true}]).	% Listening socket default options
 -define(CSOCK_OPTS, [binary, {packet, 0}, {nodelay, true}]).	% Client socket default options (upstream/downstream)
 
@@ -120,6 +120,7 @@ relay_downstream_packet(DS, US, Data, Flush) ->
 				BinL
 			)
 	end,
+	io:format("*** Transferred~n"),
 	ok.
 
 relay_upstream_packet(DS, US, Data, Flush) ->
@@ -146,6 +147,7 @@ relay_upstream_packet(DS, US, Data, Flush) ->
 				BinL
 			)
 	end,
+	io:format("*** Transferred~n"),
 	ok.
 
 % @doc Merge new upstream / downstream packet with previous remaining data, and
