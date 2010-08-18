@@ -1,16 +1,16 @@
 #!/usr/bin/env escript
--define(DS_PACKET_RELAY_DELAY, 1).	% delay inserted between splitted segments sent by downstream (in ms)
--define(US_PACKET_RELAY_DELAY, 1).	% delay inserted between splitted segments sent by upstream (in ms)
--define(SPLIT_DS_SEGMENT_LEN, 1).		% downstream segment length to split into (in byte)
--define(SPLIT_US_SEGMENT_LEN, 17).		% upstream segment length to split into (in byte)
--define(SPLIT_DS_PACKET, true).		% whether split packet sent by downstream into segments before relaying to upstream
--define(SPLIT_US_PACKET, true).		% whether split packet sent by upstream into segments before relaying to downstream
--define(FORCE_ACCURATE_SPLIT, false).	% whether force accurate splitting (don't relay if there's not enough data for a segment)
--define(CLOSE_INSTEAD_OF_DELAY, false).	% close upstream/downstream connection instead of delay a certain time when packet is being splitting
+cDS_PACKET_RELAY_DELAY() -> 1.	% delay inserted between splitted segments sent by downstream (in ms)
+cUS_PACKET_RELAY_DELAY() -> 1.	% delay inserted between splitted segments sent by upstream (in ms)
+cSPLIT_DS_SEGMENT_LEN() -> 1.		% downstream segment length to split into (in byte)
+cSPLIT_US_SEGMENT_LEN() -> 1.		% upstream segment length to split into (in byte)
+cSPLIT_DS_PACKET() -> true.		% whether split packet sent by downstream into segments before relaying to upstream
+cSPLIT_US_PACKET() -> true.		% whether split packet sent by upstream into segments before relaying to downstream
+cFORCE_ACCURATE_SPLIT() -> false.	% whether force accurate splitting (don't relay if there's not enough data for a segment)
+cCLOSE_INSTEAD_OF_DELAY() -> false.	% close upstream/downstream connection instead of delay a certain time when packet is being splitting
 
--define(DEFAULT_DEST_ADDR, {127, 0, 0, 1}).
--define(LSOCK_OPTS, [binary, {packet, 0}, {reuseaddr, true}]).	% Listening socket default options
--define(CSOCK_OPTS, [binary, {packet, 0}, {nodelay, true}]).	% Client socket default options (upstream/downstream)
+cDEFAULT_DEST_ADDR() -> {127, 0, 0, 1}.
+cLSOCK_OPTS() -> [binary, {packet, 0}, {reuseaddr, true}].	% Listening socket default options
+cCSOCK_OPTS() -> [binary, {packet, 0}, {nodelay, true}].	% Client socket default options (upstream/downstream)
 
 main([Src, Dest]) ->
 	SrcPort = list_to_integer(Src),
@@ -21,7 +21,7 @@ main(_) -> usage().
 
 run_proxy(SP, DA, DP) ->
 	io:format("Proxy tcp traffic from port ~b to ~p:~b~n", [SP, DA, DP]),
-	{ok, LS} = gen_tcp:listen(SP, [{active, false} | ?LSOCK_OPTS]),
+	{ok, LS} = gen_tcp:listen(SP, [{active, false} | cLSOCK_OPTS()]),
 	proxy_server_loop(LS, DA, DP).
 
 proxy_server_loop(LSock, DA, DP) ->
@@ -32,7 +32,7 @@ proxy_server_loop(LSock, DA, DP) ->
 	Pid = spawn(
 		fun	() ->
 				receive start -> ok end,
-				ok = inet:setopts(DS, [{active, true} | ?CSOCK_OPTS]),
+				ok = inet:setopts(DS, [{active, true} | cCSOCK_OPTS()]),
 				run_proxy_client(DS, DA, DP),
 				gen_tcp:close(DS)
 		end
@@ -42,7 +42,7 @@ proxy_server_loop(LSock, DA, DP) ->
 	proxy_server_loop(LSock, DA, DP).
 
 run_proxy_client(DS, DA, DP) ->
-	{ok, US} = gen_tcp:connect(DA, DP, [{active, true} | ?CSOCK_OPTS]),
+	{ok, US} = gen_tcp:connect(DA, DP, [{active, true} | cCSOCK_OPTS()]),
 	proxy_client_loop(DS, US),
 	gen_tcp:close(US).
 
@@ -85,7 +85,7 @@ usage() ->
 parse_addr(L) ->
 	case string:tokens(L, ":") of
 		[PortL] ->
-			Addr = ?DEFAULT_DEST_ADDR,
+			Addr = cDEFAULT_DEST_ADDR(),
 			Port = list_to_integer(PortL),
 			{Addr, Port};
 		[AddrL, PortL] ->
@@ -98,13 +98,15 @@ parse_addr(L) ->
 
 relay_downstream_packet(DS, US, Data, Flush) ->
 	io:format("*** Proxy ~b bytes from downstream to upstream: ~n~p~n", [byte_size(Data), Data]),
+	SplitDsPacket = cSPLIT_DS_PACKET(),
+	CloseInsteadOfDelay = cCLOSE_INSTEAD_OF_DELAY(),
 	SegSize = if
-		?SPLIT_DS_PACKET -> ?SPLIT_DS_SEGMENT_LEN;
+		SplitDsPacket -> cSPLIT_DS_SEGMENT_LEN();
 		true -> 0
 	end,
-	BinL = merge_packet('downstream', Data, SegSize, ?FORCE_ACCURATE_SPLIT, Flush),
+	BinL = merge_packet('downstream', Data, SegSize, cFORCE_ACCURATE_SPLIT(), Flush),
 %	io:format("~p~n", [BinL]),
-	if	?SPLIT_DS_PACKET and ?CLOSE_INSTEAD_OF_DELAY ->	% send the first packet, then close connection
+	if	SplitDsPacket and CloseInsteadOfDelay ->	% send the first packet, then close connection
 			gen_tcp:send(US, hd(BinL)),
 			gen_tcp:close(US),
 			gen_tcp:close(DS);
@@ -115,7 +117,7 @@ relay_downstream_packet(DS, US, Data, Flush) ->
 				fun	(Bin) ->
 						gen_tcp:send(US, Bin),
 						% Emulate network packet delay
-						sleep(?DS_PACKET_RELAY_DELAY)
+						sleep(cDS_PACKET_RELAY_DELAY())
 				end,
 				BinL
 			)
@@ -125,13 +127,15 @@ relay_downstream_packet(DS, US, Data, Flush) ->
 
 relay_upstream_packet(DS, US, Data, Flush) ->
 	io:format("*** Proxy ~b bytes from upstream to downstream: ~n~p~n", [byte_size(Data), Data]),
+	SplitUsPacket = cSPLIT_US_PACKET(),
+	CloseInsteadOfDelay = cCLOSE_INSTEAD_OF_DELAY(),
 	SegSize = if
-		?SPLIT_US_PACKET -> ?SPLIT_US_SEGMENT_LEN;
+		SplitUsPacket -> cSPLIT_US_SEGMENT_LEN();
 		true -> 0
 	end,
-	BinL = merge_packet('upstream', Data, SegSize, ?FORCE_ACCURATE_SPLIT, Flush),
+	BinL = merge_packet('upstream', Data, SegSize, cFORCE_ACCURATE_SPLIT(), Flush),
 %	io:format("~p~n", [BinL]),
-	if	?SPLIT_US_PACKET and ?CLOSE_INSTEAD_OF_DELAY ->	% send the first packet, then close connection
+	if	SplitUsPacket and CloseInsteadOfDelay ->	% send the first packet, then close connection
 			gen_tcp:send(DS, hd(BinL)),
 			gen_tcp:close(US),
 			gen_tcp:close(DS);
@@ -142,7 +146,7 @@ relay_upstream_packet(DS, US, Data, Flush) ->
 				fun (Bin) ->
 						gen_tcp:send(DS, Bin),
 						% Emulate network packet delay
-						sleep(?US_PACKET_RELAY_DELAY)
+						sleep(cUS_PACKET_RELAY_DELAY())
 				end,
 				BinL
 			)
