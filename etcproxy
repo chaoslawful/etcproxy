@@ -159,14 +159,6 @@ relay_upstream_packet(DS, US, Data, Flush) ->
 % true, the new packet along with all remaining data will be returned, in order
 % to flush buffered data.
 % @end
--spec merge_packet(
-	Key::term(),
-	Data::binary(),
-	SegSize::integer(),
-	AccuSplit::boolean(),
-	Flush::boolean()
-) -> [binary()].
-
 merge_packet(Key, Data, SegSize, AccuSplit, Flush) ->
 	PrevB = case get(Key) of
 		undefined -> <<>>;
